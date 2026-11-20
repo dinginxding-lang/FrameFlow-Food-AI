@@ -13,3 +13,8 @@ dist/
 *.log
 
 .frameflow/
+
+# Secrets
+.env
+.env.*
+!.env.example
