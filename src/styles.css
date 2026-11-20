@@ -29,3 +29,9 @@
   outline: 2px solid #a1b967;
   outline-offset: 2px;
 }
+
+
+.photo-recognition { margin-bottom: 16px; }
+.photo-recognition .upload-actions { margin-top: 0; }
+.photo-result { margin-top: 12px; overflow-wrap: anywhere; }
+.photo-result .result-actions { margin-bottom: 0; }

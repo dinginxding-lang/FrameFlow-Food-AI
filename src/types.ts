@@ -12,6 +12,11 @@ export type Product = {
   tone: Tone;
   duration: Duration;
 };
+export type RecognizedProduct = {
+  name: string;
+  category: Category | null;
+  highlights: string;
+};
 export type Shot = { range: string; visual: string; narration: string; caption: string };
 export type Script = { title: string; hook: string; narration: string; shots: Shot[]; tags: string[]; notice: string };
 export type GenerationMode = 'ai' | 'demo';

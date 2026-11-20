@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioLines, BookOpen, Check, ChevronRight, CircleHelp, Clapperboard, Clipboard, Download, FileText, Film, ImagePlus, LoaderCircle, Package, Play, RefreshCcw, Scissors, Sparkles, UploadCloud, WandSparkles } from 'lucide-react';
-import type { Category, Duration, GenerationMode, Product, Script, Tone } from './types';
+import type { Category, Duration, GenerationMode, Product, RecognizedProduct, Script, Tone } from './types';
 import { demoScript, initialProduct } from './sample';
 
 const labels: Record<Tone, string> = { recommend: '种草推荐', selling: '带货成交', scene: '场景故事', review: '客观介绍' };
@@ -54,6 +54,11 @@ export default function App() {
   const [videoName, setVideoName] = useState('');
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageName, setImageName] = useState('');
+  const [recognizing, setRecognizing] = useState(false);
+  const [recognitionMessage, setRecognitionMessage] = useState('');
+  const [recognized, setRecognized] = useState<RecognizedProduct | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoUrlRef = useRef<string | null>(null);
@@ -82,6 +87,48 @@ export default function App() {
     }
     setMessage('素材已导入，仅用于当前浏览器预览；不会自动上传到服务器。');
   };
+
+  async function recognizePhoto(file: File | undefined) {
+    if (!file || recognizing || busy) return;
+    setRecognized(null);
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !file.size || file.size > 8 * 1024 * 1024) {
+      setRecognitionMessage('请选择不超过 8 MB 的 JPG、PNG 或 WebP 图片。');
+      return;
+    }
+
+    setRecognizing(true);
+    setRecognitionMessage('正在识别商品包装…');
+    try {
+      const response = await fetch('/api/recognize-product', {
+        method: 'POST', headers: { 'content-type': file.type }, body: file,
+      });
+      const data = await response.json() as { product?: RecognizedProduct; error?: string };
+      if (!response.ok || !data.product) throw new Error(data.error || '识别失败，请重试。');
+      setRecognized(data.product);
+      setRecognitionMessage('请对照包装核对识别结果。填入后可继续编辑。');
+    } catch (error) {
+      setRecognitionMessage(error instanceof Error ? error.message : '识别失败，请重试。');
+    } finally {
+      setRecognizing(false);
+    }
+  }
+
+  function applyRecognizedProduct() {
+    if (!recognized) return;
+    setProduct(previous => ({
+      ...previous,
+      name: recognized.name,
+      highlights: recognized.highlights,
+      category: recognized.category ?? previous.category,
+      audience: '', scenarios: '', price: '',
+    }));
+    setRecognized(null);
+    setScript(null);
+    setMode('ai');
+    setMessage('');
+    setRecognitionMessage('已填入商品表单。核对品类并补充缺失信息后，即可生成口播与分镜。');
+    document.getElementById('name')?.focus();
+  }
 
   async function generate() {
     setMessage('');
@@ -125,6 +172,29 @@ export default function App() {
           <div className="content-grid">
             <section className="editor-panel">
               <div className="panel-heading"><div className="heading-left"><Package size={19}/><h2>商品信息</h2></div><span className="panel-note">01 / 创作设置</span></div>
+              <div className="photo-recognition">
+                <div className="upload-actions">
+                  <button disabled={recognizing || busy} onClick={() => cameraRef.current?.click()}><ImagePlus size={16}/> 拍照识别</button>
+                  <button disabled={recognizing || busy} onClick={() => photoRef.current?.click()}><UploadCloud size={16}/> 选图识别</button>
+                </div>
+                <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden
+                  onChange={event => { void recognizePhoto(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }}/>
+                <input ref={photoRef} type="file" accept="image/jpeg,image/png,image/webp" hidden
+                  onChange={event => { void recognizePhoto(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }}/>
+                <p className="helper">拍摄清晰的商品包装。照片会发送至配置的 AI 服务进行识别。</p>
+                {recognitionMessage && <p className="status" role="status">{recognitionMessage}</p>}
+                {recognized && (
+                  <div className="photo-result script-box">
+                    <span>{recognized.name || '商品名称待补充'}</span>
+                    <p>{recognized.category === 'snack' ? '零食' : recognized.category === 'seasoning' ? '调味料' : '品类待确认'}</p>
+                    <p>{recognized.highlights || '卖点和商品参数待补充'}</p>
+                    <div className="result-actions">
+                      <button disabled={busy} onClick={applyRecognizedProduct}>替换商品资料并切换为 AI 生成</button>
+                      <button onClick={() => { setRecognized(null); setRecognitionMessage(''); }}>取消</button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="category-tabs" role="group" aria-label="商品品类">
                 <button className={product.category === 'snack' ? 'category active' : 'category'} onClick={() => update('category', 'snack' as Category)}>🍿 零食类</button>
                 <button className={product.category === 'seasoning' ? 'category active' : 'category'} onClick={() => update('category', 'seasoning' as Category)}>🌶️ 调味料类</button>
@@ -164,7 +234,7 @@ export default function App() {
                   </div>
                 </fieldset>
               )}
-              <button className="generate" disabled={busy} onClick={generate}>{busy ? <LoaderCircle size={18} className="spin"/> : <Sparkles size={18}/>} {busy ? '正在生成文案…' : '生成商品口播与分镜'} <ChevronRight size={18}/></button>
+              <button className="generate" disabled={busy || recognizing} onClick={generate}>{busy ? <LoaderCircle size={18} className="spin"/> : <Sparkles size={18}/>} {busy ? '正在生成文案…' : '生成商品口播与分镜'} <ChevronRight size={18}/></button>
               {message && <p className="status" role="status">{message}</p>}
             </section>
             <div className="right-stack">
