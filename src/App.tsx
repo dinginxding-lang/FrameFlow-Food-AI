@@ -4,6 +4,28 @@ import type { Category, Duration, GenerationMode, Product, Script, Tone } from '
 import { demoScript, initialProduct } from './sample';
 
 const labels: Record<Tone, string> = { recommend: '种草推荐', selling: '带货成交', scene: '场景故事', review: '客观介绍' };
+const trendStyles = {
+  auto: '按商品推荐',
+  reveal: '先展示成品',
+  story: '日常微剧情',
+  sensory: '特写与环境声',
+  none: '自由创作',
+};
+type AiPreferences = { trendStyle: keyof typeof trendStyles; brief: string };
+const aiPreferencesKey = 'frameflow-ai-preferences';
+
+function loadAiPreferences(): AiPreferences {
+  try {
+    const stored = JSON.parse(localStorage.getItem(aiPreferencesKey) || 'null');
+    return {
+      trendStyle: Object.prototype.hasOwnProperty.call(trendStyles, stored?.trendStyle) ? stored.trendStyle : 'auto',
+      brief: typeof stored?.brief === 'string' ? stored.brief.slice(0, 1000) : '',
+    };
+  } catch {
+    return { trendStyle: 'auto', brief: '' };
+  }
+}
+
 const durations: Duration[] = [15, 30, 60];
 const defaults = ['香辣风味', '包装便携', '适合追剧', '适合拌饭', '适合拌面', '规格清晰'];
 
@@ -23,6 +45,7 @@ export default function App() {
     catch { return initialProduct; }
   });
   const [mode, setMode] = useState<GenerationMode>('demo');
+  const [aiPreferences, setAiPreferences] = useState(loadAiPreferences);
   const [script, setScript] = useState<Script | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -37,6 +60,7 @@ export default function App() {
   const imageUrlRef = useRef<string | null>(null);
 
   useEffect(() => { localStorage.setItem('frameflow-product', JSON.stringify(product)); }, [product]);
+  useEffect(() => { localStorage.setItem(aiPreferencesKey, JSON.stringify(aiPreferences)); }, [aiPreferences]);
   useEffect(() => () => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
@@ -67,7 +91,7 @@ export default function App() {
     if (mode === 'demo') { setScript(demoScript(product)); setMessage('已生成规则模板示例。切换至「AI 生成」可调用真实模型。'); return; }
     setBusy(true);
     try {
-      const res = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(product) });
+      const res = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...product, preferences: aiPreferences }) });
       const data = await res.json() as { script?: Script; error?: string };
       if (!res.ok || !data.script) throw new Error(data.error || '生成失败');
       setScript(data.script);
@@ -118,6 +142,28 @@ export default function App() {
               <div className="section-divider"/>
               <div className="subhead"><h3>生成方式</h3><span>API 密钥只保存在后端</span></div>
               <div className="mode-picker"><button onClick={() => setMode('demo')} className={mode === 'demo' ? 'selected' : ''}>示例模板 <small>无需密钥</small></button><button onClick={() => setMode('ai')} className={mode === 'ai' ? 'selected' : ''}>AI 生成 <small>需要配置 API</small></button></div>
+              {mode === 'ai' && (
+                <fieldset className="ai-preferences" disabled={busy}>
+                  <legend>AI 创作偏好</legend>
+                  <div className="field">
+                    <label htmlFor="trend-style">短视频拍法</label>
+                    <select id="trend-style" value={aiPreferences.trendStyle} onChange={e => {
+                      const trendStyle = e.target.value as AiPreferences['trendStyle'];
+                      setAiPreferences(previous => ({ ...previous, trendStyle }));
+                    }}>
+                      {Object.entries(trendStyles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                    <p className="helper">内置主流短视频拍法。也可以在下方描述你想借鉴的热门视频拍法。</p>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="ai-brief">定制要求（可选）</label>
+                    <textarea id="ai-brief" maxLength={1000} rows={3} value={aiPreferences.brief}
+                      onChange={e => setAiPreferences(previous => ({ ...previous, brief: e.target.value }))}
+                      placeholder="例如：面向抖音观众，开场用成品特写，口播像朋友分享，结尾问观众喜欢怎么搭配。" />
+                    <p className="helper">偏好自动保存到本机 · {aiPreferences.brief.length}/1000</p>
+                  </div>
+                </fieldset>
+              )}
               <button className="generate" disabled={busy} onClick={generate}>{busy ? <LoaderCircle size={18} className="spin"/> : <Sparkles size={18}/>} {busy ? '正在生成文案…' : '生成商品口播与分镜'} <ChevronRight size={18}/></button>
               {message && <p className="status" role="status">{message}</p>}
             </section>
