@@ -35,3 +35,13 @@
 .photo-recognition .upload-actions { margin-top: 0; }
 .photo-result { margin-top: 12px; overflow-wrap: anywhere; }
 .photo-result .result-actions { margin-bottom: 0; }
+
+.model-health-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:6px}
+.model-health{display:inline-flex;align-items:center;gap:7px;border:1px solid currentColor;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:600;color:#abb0bc}
+.model-health.healthy{color:#86efac;background:#142a21}.model-health.failed{color:#fca5a5;background:#321c23}
+.model-health-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.model-health-refresh{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:1px solid #434650;border-radius:6px;background:#22242b;color:#e1e3eb;font-size:12px}
+.model-health-note{font-size:11px;color:#aaadb8;margin-bottom:12px}
+.admin-link{color:#d2eb81;font-size:13px;white-space:nowrap}
+.admin-page{max-width:640px;margin:0 auto;padding:28px 18px}.admin-page h1{margin:14px 0 20px}.admin-page h2{font-size:18px;margin-bottom:14px}.admin-message{margin-top:12px;color:#e1e3eb;font-size:13px}
+.topbar>.admin-link{flex-shrink:0}.topbar>.top-actions{margin-left:auto}

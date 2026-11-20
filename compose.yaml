@@ -14,7 +14,16 @@ services:
       target: api
     environment:
       API_PORT: "8787"
+      FRAMEFLOW_ADMIN_TOKEN: "${FRAMEFLOW_ADMIN_TOKEN:-}"
+      MODEL_CONFIG_PATH: /app/data/model.json
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4.1-mini}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+    volumes:
+      - model-settings:/app/data
+    ports:
+      - "8787"
     restart: unless-stopped
+
+volumes:
+  model-settings:

@@ -165,7 +165,8 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div><span className="breadcrumb">工作台</span><ChevronRight size={14}/><strong>食品 AI 带货创作</strong><span className="top-subtitle">专为零食 · 调味料设计</span></div>
-          <div className="top-actions"><span className="saved-dot"/> 商品信息自动保存在本机 <span className="version">BETA V1</span></div>
+          <div className="top-actions"><span className="saved-dot"/> 商品信息自动保存在本机 </div>
+          <a className="admin-link" href="/admin">后台管理</a>
         </header>
         <main>
           <div className="page-heading"><div><span className="eyebrow"><Sparkles size={14}/> CONTENT STUDIO</span><h1>让好商品，有好故事。</h1><p>输入真实卖点，生成适合食品短视频的口播、字幕文案和拍摄分镜。</p></div><div className="heading-art"><AudioLines size={48}/></div></div>

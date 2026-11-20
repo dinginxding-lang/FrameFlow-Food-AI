@@ -1,0 +1,6 @@
+.git
+.env
+.env.*
+.frameflow
+node_modules
+dist
