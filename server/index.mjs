@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -9,15 +9,27 @@ const adminToken = process.env.FRAMEFLOW_ADMIN_TOKEN || '';
 const tokenDigest = value => createHash('sha256').update(value).digest();
 const adminDigest = tokenDigest(adminToken);
 let settings = {
+  id: 'default',
   apiKey: process.env.OPENAI_API_KEY || '',
   model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
   baseUrl: (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
 };
+let models = [settings];
+const validConfig = value => typeof value?.model === 'string' && typeof value.baseUrl === 'string'
+  && (value.apiKey === undefined || typeof value.apiKey === 'string');
 try {
   const saved = JSON.parse(await readFile(settingsPath, 'utf8'));
-  if (typeof saved.model !== 'string' || typeof saved.baseUrl !== 'string'
-    || (saved.apiKey !== undefined && typeof saved.apiKey !== 'string')) throw new Error('Invalid model settings');
-  settings = { ...settings, ...saved };
+  if (Array.isArray(saved?.models)) {
+    const active = saved.models.find(config => config?.id === saved.activeId);
+    if (!active || !saved.models.every(config => validConfig(config) && typeof config.id === 'string')
+      || new Set(saved.models.map(config => config.id)).size !== saved.models.length) throw new Error('Invalid model list');
+    models = saved.models;
+    settings = active;
+  } else {
+    if (!validConfig(saved)) throw new Error('Invalid model settings');
+    settings = { ...settings, ...saved, id: 'default' };
+    models = [settings];
+  }
 } catch (error) {
   if (error?.code !== 'ENOENT') console.error('Could not load saved model settings; using environment defaults.');
 }
@@ -170,8 +182,7 @@ async function probeModel({ apiKey: API_KEY, model: MODEL, baseUrl: BASE_URL }) 
   }
 }
 
-async function sendModelHealth(res) {
-  const config = settings;
+async function sendModelHealth(res, config) {
   let entry = healthChecks.get(config);
   if (!entry || entry.expiresAt <= Date.now()) {
     entry = { expiresAt: Infinity, result: probeModel(config) };
@@ -185,16 +196,20 @@ async function sendModelHealth(res) {
 }
 
 let savingSettings = false;
-async function admin(req, res) {
+async function admin(req, res, path, query) {
   if (!adminToken) return send(res, 503, { error: '未配置 FRAMEFLOW_ADMIN_TOKEN，管理功能未启用。' });
   const authorization = req.headers.authorization || '';
   if (!authorization.startsWith('Bearer ') || !timingSafeEqual(adminDigest, tokenDigest(authorization.slice(7)))) {
     return send(res, 401, { error: '管理令牌不正确。' });
   }
-  if (req.method === 'GET' && req.url === '/api/health/model') return sendModelHealth(res);
-  const publicSettings = () => ({ model: settings.model, baseUrl: settings.baseUrl, keyConfigured: Boolean(settings.apiKey) });
-  if (req.method === 'GET' && req.url === '/api/admin/model') return send(res, 200, publicSettings());
-  if (req.method !== 'PUT' || req.url !== '/api/admin/model') return send(res, 405, { error: '不支持的请求方法。' });
+  if (path === '/api/health/model' && req.method === 'GET') {
+    const id = query.get('id');
+    const config = id === null ? settings : models.find(model => model.id === id);
+    return config ? sendModelHealth(res, config) : send(res, 404, { error: '找不到此模型。' });
+  }
+  const publicSettings = () => ({ activeId: settings.id, models: models.map(({ id, model, baseUrl, apiKey }) => ({ id, model, baseUrl, keyConfigured: Boolean(apiKey) })) });
+  if (path === '/api/admin/model' && req.method === 'GET') return send(res, 200, publicSettings());
+  if (path !== '/api/admin/model' || req.method !== 'PUT') return send(res, 405, { error: '不支持的请求方法。' });
   if (savingSettings) return send(res, 409, { error: '正在保存，请稍后重试。' });
   let input;
   try {
@@ -207,30 +222,46 @@ async function admin(req, res) {
     }
     input = JSON.parse(Buffer.concat(chunks).toString());
   } catch { return send(res, 400, { error: '无法读取配置。' }); }
-  const { model, baseUrl, apiKey } = input ?? {};
-  let url;
-  try { if (typeof baseUrl === 'string' && baseUrl.length <= 1024) url = new URL(baseUrl.trim()); } catch { /* handled below */ }
-  if (typeof model !== 'string' || !model.trim() || model.length > 200
-    || !url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash
-    || (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim() || apiKey.length > 2048 || /[\r\n]/.test(apiKey)))) {
-    return send(res, 400, { error: '请检查模型名、API 基础地址和密钥。' });
-  }
   if (savingSettings) return send(res, 409, { error: '正在保存，请稍后重试。' });
-  let previousOrigin;
-  try { previousOrigin = new URL(settings.baseUrl).origin; } catch { /* invalid environment default */ }
-  if (settings.apiKey && apiKey === undefined && (url.origin !== previousOrigin || url.protocol !== 'https:')
-    && url.href.replace(/\/+$/, '') !== settings.baseUrl) {
-    return send(res, 400, { error: '更换模型服务地址时，请输入目标服务的密钥，原密钥不会被转发。' });
-  }
+  const { id, model, baseUrl, apiKey, action = 'save' } = input ?? {};
+  const previous = models.find(config => config.id === id);
+  if (id !== undefined && !previous) return send(res, 404, { error: '找不到此模型。' });
+  let nextModels = models;
+  let nextActive = settings;
+  let selectedId = id;
+  if (action === 'activate' && previous) {
+    nextActive = previous;
+  } else if (action === 'delete' && previous) {
+    if (previous === settings) return send(res, 400, { error: '请先启用其他模型，再删除当前模型。' });
+    nextModels = models.filter(config => config !== previous);
+    selectedId = settings.id;
+  } else if (action === 'save') {
+    if (!previous && models.length >= 50) return send(res, 400, { error: '最多可配置 50 个模型。' });
+    let url;
+    try { if (typeof baseUrl === 'string' && baseUrl.length <= 1024) url = new URL(baseUrl.trim()); } catch { /* handled below */ }
+    if (typeof model !== 'string' || !model.trim() || model.length > 200
+      || !url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash
+      || (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim() || apiKey.length > 2048 || /[\r\n]/.test(apiKey)))) {
+      return send(res, 400, { error: '请检查模型名、API 基础地址和密钥。' });
+    }
+    const normalizedUrl = url.href.replace(/\/+$/, '');
+    if (previous?.apiKey && apiKey === undefined && normalizedUrl !== previous.baseUrl) {
+      return send(res, 400, { error: '更换模型服务地址时，请输入目标服务的密钥。' });
+    }
+    const next = { id: previous?.id ?? randomUUID(), model: model.trim(), baseUrl: normalizedUrl, apiKey: apiKey?.trim() ?? previous?.apiKey ?? '' };
+    selectedId = next.id;
+    nextModels = previous ? models.map(config => config === previous ? next : config) : [...models, next];
+    if (previous === settings) nextActive = next;
+  } else return send(res, 400, { error: '无效的模型操作。' });
   savingSettings = true;
-  const next = { ...settings, model: model.trim(), baseUrl: url.href.replace(/\/+$/, ''), ...(apiKey === undefined ? {} : { apiKey: apiKey.trim() }) };
   const temp = `${settingsPath}.tmp`;
   try {
     await mkdir(dirname(settingsPath), { recursive: true, mode: 0o700 });
-    await writeFile(temp, JSON.stringify(next), { mode: 0o600 });
+    await writeFile(temp, JSON.stringify({ activeId: nextActive.id, models: nextModels }), { mode: 0o600 });
     await rename(temp, settingsPath);
-    settings = next;
-    return send(res, 200, publicSettings());
+    settings = nextActive;
+    models = nextModels;
+    return send(res, 200, { ...publicSettings(), selectedId });
   } catch {
     await unlink(temp).catch(() => {});
     return send(res, 500, { error: '无法保存配置，请检查服务端数据目录权限。' });
@@ -238,7 +269,8 @@ async function admin(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.url === '/api/admin/model' || req.url === '/api/health/model') return admin(req, res);
+  const [path, query] = req.url.split('?', 2);
+  if (path === '/api/admin/model' || path === '/api/health/model') return admin(req, res, path, new URLSearchParams(query));
   if (req.method === 'GET' && req.url === '/api/health') return send(res, 200, { ok: true, aiConfigured: Boolean(settings.apiKey) });
   if (req.method === 'POST' && req.url === '/api/recognize-product') return recognizeProduct(req, res);
   if (req.method !== 'POST' || req.url !== '/api/generate') return send(res, 404, { error: '接口不存在' });

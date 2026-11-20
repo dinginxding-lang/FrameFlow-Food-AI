@@ -45,3 +45,5 @@
 .admin-link{color:#d2eb81;font-size:13px;white-space:nowrap}
 .admin-page{max-width:640px;margin:0 auto;padding:28px 18px}.admin-page h1{margin:14px 0 20px}.admin-page h2{font-size:18px;margin-bottom:14px}.admin-message{margin-top:12px;color:#e1e3eb;font-size:13px}
 .topbar>.admin-link{flex-shrink:0}.topbar>.top-actions{margin-left:auto}
+.admin-page select{width:100%;min-width:0;border:1px solid #434650;border-radius:8px;background:#22242b;color:#e1e3eb;padding:9px;font:inherit}
+.brand-icon img,.admin-brand-heading img{display:block;flex-shrink:0}.admin-brand-heading{display:flex;align-items:center;gap:10px}

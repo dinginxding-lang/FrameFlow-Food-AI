@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-type Settings = { baseUrl: string; model: string; keyConfigured: boolean };
+type Settings = { id: string; baseUrl: string; model: string; keyConfigured: boolean };
 const labels: Record<string, string> = {
   idle: '未检测', checking: '检测中', healthy: '正常', timeout: '超时', not_configured: '未配置密钥',
   upstream_error: '上游请求失败', invalid_response: '响应格式异常', connection_error: '连接失败', unavailable: '检测失败',
@@ -10,6 +10,7 @@ const labels: Record<string, string> = {
 export default function Admin() {
   const [token, setToken] = useState('');
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [catalog, setCatalog] = useState<{ activeId: string; models: Settings[] } | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState('idle');
@@ -26,11 +27,11 @@ export default function Admin() {
     return { response, data };
   }
 
-  async function check() {
+  async function check(id: string) {
     setHealth('checking');
     setUpstream(undefined);
     try {
-      const { response, data } = await request('/api/health/model');
+      const { response, data } = await request(`/api/health/model?id=${encodeURIComponent(id)}`);
       const state = data?.state;
       setHealth(response.ok && state === 'healthy' && data.ok === true ? 'healthy'
         : !response.ok && typeof state === 'string' && Object.hasOwn(labels, state)
@@ -54,40 +55,68 @@ export default function Admin() {
     void run(async () => {
       const { response, data } = await request('/api/admin/model');
       if (!response.ok) throw new Error('无法读取模型配置。');
-      setSettings(data);
-      await check();
+      const active = data.models.find((item: Settings) => item.id === data.activeId);
+      setCatalog(data);
+      setSettings(active);
+      await check(active.id);
     });
+  }
+
+  function choose(item: Settings) {
+    setSettings(item);
+    setApiKey('');
+    setHealth('idle');
+    setUpstream(undefined);
+    setMessage('');
+  }
+
+  async function update(action: 'save' | 'activate' | 'delete', item: Settings) {
+    const body = { action, id: item.id || undefined, ...(action === 'save' ? {
+      model: item.model, baseUrl: item.baseUrl, apiKey: apiKey.trim() || undefined,
+    } : {}) };
+    const { response, data } = await request('/api/admin/model', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error('更新模型失败。');
+    setCatalog(data);
+    const selected = data.models.find((model: Settings) => model.id === data.selectedId);
+    choose(selected);
+    setMessage(action === 'activate' ? '已启用此模型。' : action === 'delete' ? '已删除模型。' : '模型配置已保存。');
+    if (action !== 'delete') await check(selected.id);
   }
 
   function save(event: FormEvent) {
     event.preventDefault();
-    if (!settings) return;
-    void run(async () => {
-      const { response, data } = await request('/api/admin/model', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: settings.model, baseUrl: settings.baseUrl, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) }),
-      });
-      if (!response.ok) throw new Error('保存失败。');
-      setSettings(data);
-      setApiKey('');
-      setMessage('模型配置已保存并生效。');
-      await check();
-    });
+    if (settings) void run(() => update('save', settings));
   }
 
   return <main className="admin-page">
     <a className="admin-link" href="/">← 返回创作台</a>
-    <h1>后台管理</h1>
-    {!settings ? <form className="editor-panel" onSubmit={login}>
+    <h1 className="admin-brand-heading"><img src="/logo.svg" alt="" width="36" height="36" />模型服务</h1>
+    {!settings || !catalog ? <form className="editor-panel" onSubmit={login}>
       <label className="field">管理令牌<input type="password" required autoComplete="off" disabled={busy} value={token} onChange={event => setToken(event.target.value)}/></label>
       <button className="model-health-refresh" disabled={busy}>进入后台</button>
     </form> : <section className="editor-panel">
-      <h2>模型配置</h2>
+      <h2>模型列表</h2>
+      <label className="field">选择模型<select value={settings.id} disabled={busy} onChange={event => {
+        const item = catalog.models.find(model => model.id === event.target.value);
+        if (item) choose(item);
+      }}>
+        {!settings.id && <option value="">新增模型（未保存）</option>}
+        {catalog.models.map(item => <option key={item.id} value={item.id}>{item.model} — {item.baseUrl}{item.id === catalog.activeId ? '（使用中）' : ''}</option>)}
+      </select></label>
+      <div className="model-health-row">
+        <button type="button" className="model-health-refresh" disabled={busy} onClick={() => choose({ id: '', model: '', baseUrl: '', keyConfigured: false })}>新增模型</button>
+        {settings.id && settings.id !== catalog.activeId && <>
+          <button type="button" className="model-health-refresh" disabled={busy} onClick={() => void run(() => update('activate', settings))}>启用此模型</button>
+          <button type="button" className="model-health-refresh" disabled={busy} onClick={() => { if (window.confirm('确定删除此模型配置？')) void run(() => update('delete', settings)); }}>删除</button>
+        </>}
+      </div>
       <div className="model-health-row">
         <span role="status" className={`model-health ${health === 'healthy' ? 'healthy' : ['idle', 'checking'].includes(health) ? '' : 'failed'}`}>
           <span className="model-health-dot" aria-hidden="true"/>模型 API：{labels[health]}{upstream ? `（${upstream}）` : ''}
         </span>
-        <button type="button" className="model-health-refresh" disabled={busy} onClick={() => void run(check)}>重新检测</button>
+        <button type="button" className="model-health-refresh" disabled={busy || !settings.id} onClick={() => void run(() => check(settings.id))}>重新检测</button>
       </div>
       <p className="model-health-note">检测已保存配置的文本接口，不验证图片识别。</p>
       <form onSubmit={save}>

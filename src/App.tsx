@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, BookOpen, Check, ChevronRight, CircleHelp, Clapperboard, Clipboard, Download, FileText, Film, ImagePlus, LoaderCircle, Package, Play, RefreshCcw, Scissors, Sparkles, UploadCloud, WandSparkles } from 'lucide-react';
+import { AudioLines, BookOpen, Check, ChevronRight, CircleHelp, Clipboard, Download, FileText, Film, ImagePlus, LoaderCircle, Package, Play, RefreshCcw, Scissors, Sparkles, UploadCloud, WandSparkles } from 'lucide-react';
 import type { Category, Duration, GenerationMode, Product, RecognizedProduct, Script, Tone } from './types';
 import { demoScript, initialProduct } from './sample';
 
@@ -156,7 +156,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="rail">
-        <div className="brand-icon"><Clapperboard size={24}/></div>
+        <a className="brand-icon" href="/" aria-label="FrameFlow Food AI 创作台"><img src="/logo.svg" alt="" width="46" height="46" /></a>
         <div className="rail-link active"><WandSparkles size={21}/><span>口播创作</span></div>
         <div className="rail-link"><Film size={21}/><span>素材预览</span></div>
         <div className="rail-spacer"/>
@@ -166,7 +166,7 @@ export default function App() {
         <header className="topbar">
           <div><span className="breadcrumb">工作台</span><ChevronRight size={14}/><strong>食品 AI 带货创作</strong><span className="top-subtitle">专为零食 · 调味料设计</span></div>
           <div className="top-actions"><span className="saved-dot"/> 商品信息自动保存在本机 </div>
-          <a className="admin-link" href="/admin">后台管理</a>
+          <a className="admin-link" href="/admin">模型服务</a>
         </header>
         <main>
           <div className="page-heading"><div><span className="eyebrow"><Sparkles size={14}/> CONTENT STUDIO</span><h1>让好商品，有好故事。</h1><p>输入真实卖点，生成适合食品短视频的口播、字幕文案和拍摄分镜。</p></div><div className="heading-art"><AudioLines size={48}/></div></div>
